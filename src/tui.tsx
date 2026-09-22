@@ -1,4 +1,5 @@
 import { Plugin } from "@opencode/plugin/tui";
+import { TextAttributes } from "@opentui/core";
 import type { JSX } from "@opentui/solid";
 import { createEffect, createSignal, For, onCleanup, Show, type Accessor } from "solid-js";
 import { TodoRpc } from "./rpc.js";
@@ -123,16 +124,28 @@ export function TodoSidebar(props: TodoSidebarProps): JSX.Element {
             <b>Todos</b>
           </text>
           <For each={feed.todos()}>
-            {(todo) => (
-              <box flexDirection="row" gap={1} minWidth={0}>
-                <text flexShrink={0} fg={statusColor(todo.status, theme)}>
-                  {statusGlyph(todo.status)}
-                </text>
-                <text fg={theme.text.base} wrapMode="word" truncate maxHeight={2} flexGrow={1} flexShrink={1} minWidth={0}>
-                  {todo.content}
-                </text>
-              </box>
-            )}
+            {(todo) => {
+              const isCancelled = todo.status === "cancelled";
+              return (
+                <box flexDirection="row" gap={1} minWidth={0}>
+                  <text flexShrink={0} fg={statusColor(todo.status, theme)}>
+                    {statusGlyph(todo.status)}
+                  </text>
+                  <text
+                    fg={isCancelled ? theme.text.muted : theme.text.base}
+                    attributes={isCancelled ? TextAttributes.STRIKETHROUGH : TextAttributes.NONE}
+                    wrapMode="word"
+                    truncate
+                    maxHeight={2}
+                    flexGrow={1}
+                    flexShrink={1}
+                    minWidth={0}
+                  >
+                    {todo.content}
+                  </text>
+                </box>
+              );
+            }}
           </For>
         </box>
       </Show>
