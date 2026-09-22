@@ -1,0 +1,69 @@
+# Tasks
+
+## 1. Project Scaffolding
+
+- [ ] 1.1 Create `package.json` (`type: module`, `main`, `exports["."]`/`exports["./rpc"]`/`exports["./tui"]`, `engines.node >= 22.5`, `@opencode/plugin` as an optional `peerDependency`) and verify `bun install` succeeds with no dependency errors
+- [ ] 1.2 Add `.gitignore` entries for the default database path pattern (`*.db`, `*.db-wal`, `*.db-shm`) and verify `git status` shows no DB artifacts after a local test run
+- [ ] 1.3 Configure the test runner and linter (per `coding`/`pre-commit` conventions) and verify `bun test` runs (even with zero tests) and lint passes on an empty `src/`
+
+## 2. Store and Schema (design D1, D2, D4, D6, D7)
+
+- [ ] 2.1 Write failing unit tests for schema creation and `user_version` migration (fresh create lands at current version; re-open is a no-op; a future-versioned database is refused with a clear error) — spec: `todo-storage` "Store rejects an unknown schema version"
+- [ ] 2.2 Implement `src/store.ts` schema bootstrap and migration runner using `bun:sqlite` with `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout` (configurable), and verify the tests from 2.1 pass
+- [ ] 2.3 Write failing unit tests for the two-pass diff-write (id-matched carry-forward; id-less item recovered by content match; unmatched item created as new) — spec: `todo-storage` "Item identity is preserved across writes"
+- [ ] 2.4 Implement the diff-write path in `src/store.ts` and verify the tests from 2.3 pass
+- [ ] 2.5 Write failing unit tests for `completed_at` transitions (set on transition into `completed`; cleared on transition out; preserved when status is repeated) — spec: `todo-storage` "Completion timestamps are tracked across status transitions"
+- [ ] 2.6 Implement timestamp-transition logic in the write path and verify the tests from 2.5 pass
+- [ ] 2.7 Write a failing unit test asserting a dropped item is archived (`archived_at` set) not deleted, and excluded from reads — spec: `todo-storage` "Items removed from a write are archived, not deleted"
+- [ ] 2.8 Implement soft-delete-on-omit in the write path and verify the test from 2.7 passes
+- [ ] 2.9 Write failing unit tests for database path resolution (default XDG path when unconfigured; explicit `dbPath` option/`OPENCODE_TODO_DB` env var override) — spec: `todo-storage` "Database location is configurable"
+- [ ] 2.10 Implement path resolution and verify the tests from 2.9 pass
+- [ ] 2.11 Write a concurrency smoke test: two store instances writing to the same database file concurrently complete without `SQLITE_BUSY` surfacing, and verify it passes against the WAL + `busy_timeout` configuration from 2.2
+
+## 3. Server Plugin Tools — `todowrite` / `todoread` (design D8, D11; spec `todo-tools`)
+
+- [ ] 3.1 Write a failing integration test asserting `todowrite` and `todoread` are registered with `options.codemode: false` and appear on a live session's native tool list — spec: `todo-tools` "directly callable by the model" (both requirements)
+- [ ] 3.2 Implement `src/index.ts` `Plugin.define` with `ctx.tool.transform` registering both tools backed by `src/store.ts`, and verify the test from 3.1 passes
+- [ ] 3.3 Write a failing unit test asserting `todowrite` rejects an item with an out-of-enum `status` and modifies no rows — spec: `todo-tools` "todowrite rejects an invalid status value"
+- [ ] 3.4 Implement server-side status validation in the tool handler and verify the test from 3.3 passes
+- [ ] 3.5 Write a failing unit test snapshotting the `metadata` payload shape (`source`, `schemaVersion`, `sessionID`, `revision`, `todos`, `counts`) for both tools' results — spec: `todo-tools` "Tool results carry a structured metadata contract" (both scenarios)
+- [ ] 3.6 Implement metadata construction shared by both tool handlers and verify the test from 3.5 passes
+- [ ] 3.7 Write a failing unit test asserting a store error during tool execution is logged and rethrown to the model, not swallowed — spec: `todo-tools` "Tool failures are surfaced to the model"
+- [ ] 3.8 Implement the catch-log-rethrow error contract in both tool handlers and verify the test from 3.7 passes
+- [ ] 3.9 Document and verify (manually, against a local config) that `todowrite`/`todoread` are addressable as `permissions` action values in an agent config — spec: `todo-tools` "todowrite and todoread are gateable per agent"
+
+## 4. Housekeeping (design D5; spec `todo-housekeeping`)
+
+- [ ] 4.1 Write a failing unit test asserting a `session.deleted` event (`event.data.sessionID`) archives all of that session's non-archived items — spec: `todo-housekeeping` "Deleted sessions' todos are archived reactively"
+- [ ] 4.2 Implement the `ctx.event.subscribe` reactive-prune consumer in `src/index.ts` and verify the test from 4.1 passes
+- [ ] 4.3 Write failing unit tests for the age-based orphan sweep (archives sessions past the configured grace period; explicit negative test asserting no session-liveness lookup is performed) — spec: `todo-housekeeping` "Orphaned sessions are pruned by an age-based sweep" (both scenarios)
+- [ ] 4.4 Implement the opportunistic sweep (startup + interval-gated, piggybacked on a tool call) in `src/store.ts`/`src/index.ts` and verify the tests from 4.3 pass
+- [ ] 4.5 Write failing unit tests for the retention-window boundary (completed item just inside vs. just outside `retentionDays` is/isn't archived) — spec: `todo-housekeeping` "Completed items are auto-archived after a retention window" (both scenarios)
+- [ ] 4.6 Implement retention-window archival in the sweep and verify the tests from 4.5 pass
+- [ ] 4.7 Write failing unit tests for housekeeping config defaults and fallback-with-warning on invalid values — spec: `todo-housekeeping` "Housekeeping intervals and windows are configurable" (both scenarios)
+- [ ] 4.8 Implement config parsing with defaults and warning fallback and verify the tests from 4.7 pass
+
+## 5. RPC Contract (design D9)
+
+- [ ] 5.1 Define `src/rpc.ts` exporting `Rpc.define({ id: "todo", methods: { list }, events: { changed } })` per the design's shape, and verify it type-checks and is importable from the package's `./rpc` export path
+- [ ] 5.2 Implement `ctx.rpc.register` in `src/index.ts` wiring `list({ sessionID })` to the store and emitting `changed({ sessionID, revision })` after a successful `todowrite` transaction and after any housekeeping pass that modified rows
+- [ ] 5.3 Write a failing integration test exercising the RPC round trip (`register` + `events.emit` reaching a subscriber) and verify it passes once 5.2 is implemented
+
+## 6. TUI Plugin (design D9, D10, D11; spec `todo-tui`)
+
+- [ ] 6.1 Implement `src/tui.tsx` `Plugin.define` registering `context.ui.slot({ append: "sidebar.content", render: ({ sessionID }) => … })`, calling RPC `list` on focus and subscribing to `changed` for re-fetch — spec: `todo-tui` "Sidebar renders the focused session's todo list", "Sidebar updates without polling"
+- [ ] 6.2 Implement the empty-state behaviour (render nothing when the list is empty) — spec: `todo-tui` "Sidebar hides when the list is empty"
+- [ ] 6.3 Implement the inline-error state on RPC failure, contained within the component — spec: `todo-tui` "Sidebar degrades to an inline error on RPC failure"
+- [ ] 6.4 Confirm by code inspection that the TUI plugin never imports `src/store.ts` or opens the SQLite file directly, only `context.client.rpc` — spec: `todo-tui` "TUI reads todo data only through the RPC domain"
+- [ ] 6.5 Verify the TUI component per the `ui-development` skill's TUI method: capture actual rendered terminal output for the populated-list, empty, and inline-error states in a live opencode V2 session and confirm each matches the design's composition (not an internal render-tree assertion alone)
+
+## 7. Configuration and Documentation
+
+- [ ] 7.1 Implement `ctx.options` parsing for `retentionDays`, `orphanGraceDays`, `sweepIntervalHours`, `dbPath`, `busyTimeoutMs` with documented defaults (design D12)
+- [ ] 7.2 Write `README.md` covering: installation (`opencode.json(c)` `plugins` entry), configuration options and defaults, and per-agent `permissions` gating of `todowrite`/`todoread` as a supported feature
+- [ ] 7.3 Verify `bun test` (full suite from sections 2–5) and the linter both pass with zero failures and zero suppressed diagnostics
+
+## 8. Final Verification
+
+- [ ] 8.1 Run the full test suite and linter one more time after all sections are complete and record the result
+- [ ] 8.2 Manually smoke-test in a live opencode V2 session: call `todowrite`, call `todoread`, observe the sidebar update, delete the session and confirm reactive pruning, per the scenarios in all four spec files
