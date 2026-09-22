@@ -135,6 +135,8 @@ housekeeping pass); it never polls. It renders nothing at all when the list is e
 and degrades to a single inline text line (`todo: <message>`) if the RPC call fails, so
 a broken plugin never blocks the rest of the terminal UI.
 
+![Todo sidebar example](docs/sidebar-screenshot.png)
+
 ## Development
 
 ```bash
