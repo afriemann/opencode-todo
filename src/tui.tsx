@@ -101,7 +101,7 @@ export function TodoSidebar(props: TodoSidebarProps): JSX.Element {
   return (
     <Show when={feed.error() === null} fallback={<text>{`todo: ${feed.error()}`}</text>}>
       <Show when={feed.todos().length > 0}>
-        <box title="Todos">
+        <box title="Todos" border>
           <For each={feed.todos()}>
             {(todo) => <text>{`${statusMark(todo.status)} ${todo.content}`}</text>}
           </For>
