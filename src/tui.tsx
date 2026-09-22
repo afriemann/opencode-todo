@@ -4,16 +4,32 @@ import { createEffect, createSignal, For, onCleanup, Show, type Accessor } from 
 import { TodoRpc } from "./rpc.js";
 import type { TodoItem, TodoStatus } from "./types.js";
 
-function statusMark(status: TodoStatus): string {
+/** Status glyph + colour, matching the conventions already used elsewhere in opencode's
+ * own TUI (e.g. the MCP sidebar's coloured `•` dots, the diff-viewer's `✓`/`✗` file-review
+ * marks, and the session-tab `●`/`○` dots) rather than inventing a bespoke bracket
+ * notation (`[x]`/`[~]`/`[-]`/`[ ]`) that reads as ASCII-art next to the rest of the UI. */
+function statusGlyph(status: TodoStatus): string {
   switch (status) {
     case "completed":
-      return "[x]";
+      return "✓";
     case "in_progress":
-      return "[~]";
+      return "●";
     case "cancelled":
-      return "[-]";
+      return "✗";
     case "pending":
-      return "[ ]";
+      return "○";
+  }
+}
+
+function statusColor(status: TodoStatus, theme: Plugin.Context["theme"]): string {
+  switch (status) {
+    case "completed":
+      return theme.text.feedback.success.base;
+    case "in_progress":
+      return theme.text.feedback.info.base;
+    case "cancelled":
+    case "pending":
+      return theme.text.muted;
   }
 }
 
@@ -97,13 +113,26 @@ interface TodoSidebarProps {
 export function TodoSidebar(props: TodoSidebarProps): JSX.Element {
   const client = props.context.client.rpc(TodoRpc);
   const feed = createTodoFeed(client, () => props.sessionID);
+  const theme = props.context.theme;
 
   return (
-    <Show when={feed.error() === null} fallback={<text>{`todo: ${feed.error()}`}</text>}>
+    <Show when={feed.error() === null} fallback={<text fg={theme.text.feedback.error.base}>{`todo: ${feed.error()}`}</text>}>
       <Show when={feed.todos().length > 0}>
-        <box title="Todos" border>
+        <box>
+          <text fg={theme.text.base}>
+            <b>Todos</b>
+          </text>
           <For each={feed.todos()}>
-            {(todo) => <text>{`${statusMark(todo.status)} ${todo.content}`}</text>}
+            {(todo) => (
+              <box flexDirection="row" gap={1} minWidth={0}>
+                <text flexShrink={0} fg={statusColor(todo.status, theme)}>
+                  {statusGlyph(todo.status)}
+                </text>
+                <text fg={theme.text.base} wrapMode="none" truncate flexGrow={1} flexShrink={1} minWidth={0}>
+                  {todo.content}
+                </text>
+              </box>
+            )}
           </For>
         </box>
       </Show>
