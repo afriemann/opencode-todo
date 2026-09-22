@@ -94,3 +94,18 @@ XDG data directory.
 #### Scenario: Explicit path overrides the default
 - **WHEN** a database path is supplied via plugin configuration or environment variable
 - **THEN** the store opens its database at that supplied path instead of the default
+
+### Requirement: Item order and write revision are tracked
+The system SHALL persist each item's position from the order of the array supplied to a write,
+replacing any previously stored order for that session, and SHALL increment a per-session
+revision counter on every write to that session.
+
+#### Scenario: Item order reflects the most recent write
+- **GIVEN** a session's todo list was previously written in one order
+- **WHEN** a subsequent write supplies the same items in a different order
+- **THEN** a read for that session returns the items in the order of the most recent write
+
+#### Scenario: Revision increments on every write
+- **WHEN** a session receives two or more writes
+- **THEN** each write's returned revision is exactly one greater than the previous write's
+  revision for that session

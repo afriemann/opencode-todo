@@ -135,4 +135,26 @@ describe("plugin setup wiring", () => {
     await expect(todowrite.execute({ todos: [] }, { sessionID: "s1" })).rejects.toThrow();
     await (cleanup as () => Promise<void>)?.();
   });
+
+  it("logs a warning and falls back to the default when busyTimeoutMs has the wrong type", async () => {
+    const { ctx } = createFakeCtx(join(dir, "todos.db"));
+    (ctx.options as Record<string, unknown>).busyTimeoutMs = "5000";
+
+    const written: string[] = [];
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string) => {
+      written.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+
+    let cleanup: (() => Promise<void>) | undefined;
+    try {
+      cleanup = (await plugin.setup(ctx as never)) as () => Promise<void>;
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+
+    expect(written.some((line) => line.includes("invalid busyTimeoutMs"))).toBe(true);
+    await cleanup?.();
+  });
 });

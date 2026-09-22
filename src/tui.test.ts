@@ -44,6 +44,7 @@ function sampleTodo(overrides: Partial<TodoItem> = {}): TodoItem {
 }
 
 describe("createTodoFeed", () => {
+  // spec: todo-tui "Sidebar shows the focused session's items"
   test("fetches the focused session's list on first run", async () => {
     let disposeRoot = (): void => {};
     const { client, listCalls } = fakeClient();
@@ -56,6 +57,7 @@ describe("createTodoFeed", () => {
     disposeRoot();
   });
 
+  // spec: todo-tui "List updates on a change notification"
   test("re-fetches only on a changed event for the same session", async () => {
     let disposeRoot = (): void => {};
     const { client, listCalls, emit } = fakeClient();
@@ -77,6 +79,7 @@ describe("createTodoFeed", () => {
     disposeRoot();
   });
 
+  // spec: todo-tui "Sidebar shows the focused session's items"
   test("populates todos() from a successful list call", async () => {
     let disposeRoot = (): void => {};
     const items = [sampleTodo()];
@@ -95,6 +98,7 @@ describe("createTodoFeed", () => {
     disposeRoot();
   });
 
+  // spec: todo-tui "RPC failure shows inline error, not a crash"
   test("an RPC rejection is captured in error() and never thrown", async () => {
     let disposeRoot = (): void => {};
     const client: TodoRpcClient = {
@@ -114,6 +118,7 @@ describe("createTodoFeed", () => {
     disposeRoot();
   });
 
+  // spec: todo-tui "List updates on a change notification"
   test("re-fetching when sessionID changes tracks the new session", async () => {
     let disposeRoot = (): void => {};
     const { client, listCalls } = fakeClient();

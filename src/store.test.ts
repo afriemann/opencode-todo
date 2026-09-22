@@ -29,6 +29,7 @@ describe("schema creation and migration", () => {
     raw.close();
   });
 
+  // spec: todo-storage "Todos persist per session across restarts"
   it("re-open of an up-to-date database is a no-op", () => {
     const dbPath = join(dir, "todos.db");
     const store1 = new Store({ dbPath });
@@ -134,6 +135,38 @@ describe("completed_at transitions", () => {
     const second = store.write("s1", [{ id, content: "a", status: "completed" }]);
 
     expect(second.todos[0]!.completedAt).toBe(completedAt);
+    store.close();
+  });
+});
+
+describe("write ordering and revision", () => {
+  // spec: todo-storage "Item order and write revision are tracked"
+  it("reflects item order from the most recent write", () => {
+    const store = new Store({ dbPath: join(dir, "todos.db") });
+    store.write("s1", [
+      { content: "a", status: "pending" },
+      { content: "b", status: "pending" },
+    ]);
+
+    const reordered = store.write("s1", [
+      { content: "b", status: "pending" },
+      { content: "a", status: "pending" },
+    ]);
+
+    expect(reordered.todos.map((t) => t.content)).toEqual(["b", "a"]);
+    expect(store.read("s1").map((t) => t.content)).toEqual(["b", "a"]);
+    store.close();
+  });
+
+  it("increments the revision on every write to the same session", () => {
+    const store = new Store({ dbPath: join(dir, "todos.db") });
+    const first = store.write("s1", [{ content: "a", status: "pending" }]);
+    const second = store.write("s1", [{ content: "a", status: "in_progress" }]);
+    const third = store.write("s1", [{ content: "a", status: "completed" }]);
+
+    expect(first.revision).toBe(1);
+    expect(second.revision).toBe(2);
+    expect(third.revision).toBe(3);
     store.close();
   });
 });

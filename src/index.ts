@@ -8,14 +8,28 @@ import {
 } from "./housekeeping";
 import { TodoRpc } from "./rpc";
 
-function readStringOption(options: Record<string, unknown>, key: string): string | undefined {
+function readStringOption(
+  options: Record<string, unknown>,
+  key: string,
+  log: (message: string) => void,
+): string | undefined {
   const value = options[key];
-  return typeof value === "string" ? value : undefined;
+  if (value === undefined) return undefined;
+  if (typeof value === "string") return value;
+  log(`invalid ${key} (${JSON.stringify(value)}) — using default`);
+  return undefined;
 }
 
-function readNumberOption(options: Record<string, unknown>, key: string): number | undefined {
+function readNumberOption(
+  options: Record<string, unknown>,
+  key: string,
+  log: (message: string) => void,
+): number | undefined {
   const value = options[key];
-  return typeof value === "number" ? value : undefined;
+  if (value === undefined) return undefined;
+  if (typeof value === "number") return value;
+  log(`invalid ${key} (${JSON.stringify(value)}) — using default`);
+  return undefined;
 }
 
 function failingTool(name: string, reason: string) {
@@ -40,8 +54,8 @@ export default Plugin.define({
 
     let store: Store | undefined;
     try {
-      const dbPath = readStringOption(options, "dbPath");
-      const busyTimeoutMs = readNumberOption(options, "busyTimeoutMs");
+      const dbPath = readStringOption(options, "dbPath", log);
+      const busyTimeoutMs = readNumberOption(options, "busyTimeoutMs", log);
       store = new Store({
         ...(dbPath !== undefined ? { dbPath } : {}),
         ...(busyTimeoutMs !== undefined ? { busyTimeoutMs } : {}),
@@ -121,6 +135,9 @@ export default Plugin.define({
         }
       } catch (error) {
         if (abortController.signal.aborted) return;
+        // No reconnect on a non-abort subscription error: the opportunistic sweep (D5) is a
+        // belt-and-braces mechanism that still catches orphaned/deleted sessions even if this
+        // reactive subscription dies for the rest of the process lifetime.
         log(`event subscription failed: ${String(error)}`);
       }
     })();
