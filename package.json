@@ -1,0 +1,31 @@
+{
+  "name": "opencode-todo",
+  "version": "0.1.0",
+  "description": "Restores a per-session todo list (todowrite/todoread) for opencode V2, with SQLite storage, housekeeping, and a TUI sidebar.",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./rpc": "./src/rpc.ts",
+    "./tui": "./src/tui.tsx"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "test": "bun test",
+    "lint": "eslint ."
+  },
+  "peerDependencies": {
+    "@opencode/plugin": ">=2.0.0"
+  },
+  "devDependencies": {
+    "@opencode/plugin": "^2.0.14",
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.6.0",
+    "eslint": "^9.0.0",
+    "@eslint/js": "^9.0.0",
+    "typescript-eslint": "^8.0.0",
+    "prettier": "^3.3.0"
+  }
+}
