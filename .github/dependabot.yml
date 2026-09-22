@@ -9,8 +9,8 @@ updates:
       github-actions:
         patterns: ["*"]
 
-  # Keep Bun dependencies up to date.
-  - package-ecosystem: bun
-    directory: /
-    schedule:
-      interval: weekly
+  # No `bun` package-ecosystem entry: GitHub's Dependabot bun updater only
+  # parses bun.lock `lockfileVersion: 1`, but this project's installed Bun
+  # writes `lockfileVersion: 2` — every run fails with
+  # "Unsupported bun.lock 'lockfileVersion' 2 ... supports up to 1."
+  # Re-add once Dependabot's bun updater supports the current lockfile format.
