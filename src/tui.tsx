@@ -128,7 +128,7 @@ export function TodoSidebar(props: TodoSidebarProps): JSX.Element {
                 <text flexShrink={0} fg={statusColor(todo.status, theme)}>
                   {statusGlyph(todo.status)}
                 </text>
-                <text fg={theme.text.base} wrapMode="none" truncate flexGrow={1} flexShrink={1} minWidth={0}>
+                <text fg={theme.text.base} wrapMode="word" truncate maxHeight={2} flexGrow={1} flexShrink={1} minWidth={0}>
                   {todo.content}
                 </text>
               </box>
