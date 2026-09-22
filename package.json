@@ -13,6 +13,7 @@
     "node": ">=22.5"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json && node script/build-tui.mjs",
     "test": "bun test --conditions=browser",
     "lint": "eslint ."
   },
