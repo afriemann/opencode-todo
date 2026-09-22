@@ -61,4 +61,4 @@ export const TodoRpc = Rpc.define({
       },
     },
   },
-});
+} as const);

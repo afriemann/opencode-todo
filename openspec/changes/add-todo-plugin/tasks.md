@@ -51,10 +51,10 @@
 
 ## 6. TUI Plugin (design D9, D10, D11; spec `todo-tui`)
 
-- [ ] 6.1 Implement `src/tui.tsx` `Plugin.define` registering `context.ui.slot({ append: "sidebar.content", render: ({ sessionID }) => … })`, calling RPC `list` on focus and subscribing to `changed` for re-fetch — spec: `todo-tui` "Sidebar renders the focused session's todo list", "Sidebar updates without polling"
-- [ ] 6.2 Implement the empty-state behaviour (render nothing when the list is empty) — spec: `todo-tui` "Sidebar hides when the list is empty"
-- [ ] 6.3 Implement the inline-error state on RPC failure, contained within the component — spec: `todo-tui` "Sidebar degrades to an inline error on RPC failure"
-- [ ] 6.4 Confirm by code inspection that the TUI plugin never imports `src/store.ts` or opens the SQLite file directly, only `context.client.rpc` — spec: `todo-tui` "TUI reads todo data only through the RPC domain"
+- [x] 6.1 Implement `src/tui.tsx` `Plugin.define` registering `context.ui.slot({ append: "sidebar.content", render: ({ sessionID }) => … })`, calling RPC `list` on focus and subscribing to `changed` for re-fetch — spec: `todo-tui` "Sidebar renders the focused session's todo list", "Sidebar updates without polling"
+- [x] 6.2 Implement the empty-state behaviour (render nothing when the list is empty) — spec: `todo-tui` "Sidebar hides when the list is empty"
+- [x] 6.3 Implement the inline-error state on RPC failure, contained within the component — spec: `todo-tui` "Sidebar degrades to an inline error on RPC failure"
+- [x] 6.4 Confirm by code inspection that the TUI plugin never imports `src/store.ts` or opens the SQLite file directly, only `context.client.rpc` — spec: `todo-tui` "TUI reads todo data only through the RPC domain"
 - [ ] 6.5 Verify the TUI component per the `ui-development` skill's TUI method: capture actual rendered terminal output for the populated-list, empty, and inline-error states in a live opencode V2 session and confirm each matches the design's composition (not an internal render-tree assertion alone)
 
 ## 7. Configuration and Documentation

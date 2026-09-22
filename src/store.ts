@@ -3,33 +3,9 @@ import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { VALID_STATUSES, type TodoInput, type TodoItem, type TodoStatus } from "./types.js";
 
-export type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
-
-const VALID_STATUSES: ReadonlySet<TodoStatus> = new Set([
-  "pending",
-  "in_progress",
-  "completed",
-  "cancelled",
-]);
-
-export interface TodoItem {
-  id: string;
-  content: string;
-  status: TodoStatus;
-  priority: string | null;
-  position: number;
-  createdAt: number;
-  updatedAt: number;
-  completedAt: number | null;
-}
-
-export interface TodoInput {
-  id?: string;
-  content: string;
-  status: TodoStatus;
-  priority?: string | null;
-}
+export type { TodoInput, TodoItem, TodoStatus } from "./types.js";
 
 export interface StoreOptions {
   dbPath?: string;
