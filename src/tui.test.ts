@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 import { createRoot, createSignal } from "solid-js";
 import {
   createTodoFeed,
@@ -11,6 +11,15 @@ type ChangedHandler = (event: { data: unknown }) => void;
 
 const flush = (): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, 0));
+
+/** `jest.useFakeTimers()` replaces the global `setTimeout` too, so `flush()`'s own
+ * macrotask would never fire while fake timers are active. Promise microtasks are
+ * unaffected by fake timers, so draining a couple of microtask turns is enough to let
+ * `refresh()`'s internal `await client.list(...)` settle after a fake-timer advance. */
+const flushMicrotasks = async (): Promise<void> => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
 
 function fakeClient(): {
   client: TodoRpcClient;
@@ -140,6 +149,55 @@ describe("createTodoFeed", () => {
     expect(listCalls).toEqual(["s1", "s2"]);
 
     disposeRoot();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  // spec: todo-tui "Safety-net reconciliation recovers from a missed change notification"
+  test("safety-net interval re-fetches even without a changed event", async () => {
+    let disposeRoot = (): void => {};
+    const { client, listCalls } = fakeClient();
+    jest.useFakeTimers();
+    createRoot((dispose) => {
+      disposeRoot = dispose;
+      createTodoFeed(client, () => "s1");
+    });
+    await flushMicrotasks();
+    expect(listCalls.length).toBe(1);
+
+    jest.advanceTimersByTime(30_000);
+    await flushMicrotasks();
+    expect(listCalls.length).toBe(2);
+
+    disposeRoot();
+  });
+
+  // spec: todo-tui "Safety-net reconciliation recovers from a missed change notification"
+  test("safety-net interval is cleared on session change and on dispose", async () => {
+    let disposeRoot = (): void => {};
+    const { client, listCalls } = fakeClient();
+    const [sessionID, setSessionID] = createSignal("s1");
+    jest.useFakeTimers();
+    createRoot((dispose) => {
+      disposeRoot = dispose;
+      createTodoFeed(client, sessionID);
+    });
+    await flushMicrotasks();
+    expect(listCalls).toEqual(["s1"]);
+
+    // Switching sessions must tear down the old interval, not accumulate a second one.
+    setSessionID("s2");
+    await flushMicrotasks();
+    expect(listCalls).toEqual(["s1", "s2"]);
+
+    disposeRoot();
+
+    // No interval should still be running after dispose.
+    jest.advanceTimersByTime(60_000);
+    await flushMicrotasks();
+    expect(listCalls).toEqual(["s1", "s2"]);
   });
 });
 

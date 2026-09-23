@@ -119,13 +119,21 @@ export interface TodoFeed {
   readonly error: Accessor<string | null>;
 }
 
+/** How often the sidebar re-fetches as a safety net, independent of the `changed` event.
+ * `client.events.on` is a live-only push channel with no buffering or replay (see spec
+ * `todo-tui`'s "Sidebar updates without polling" requirement) — if the underlying event
+ * stream silently stops delivering, this bounded reconciliation is what recovers the
+ * sidebar instead of leaving it stale indefinitely. */
+const SAFETY_NET_INTERVAL_MS = 30_000;
+
 /**
  * Renderer-independent data flow for the sidebar: fetches the focused session's todo
- * list, re-fetches only on a `changed` event for that same session, and never lets an
- * RPC failure escape as a thrown error (design D11) — kept separate from `TodoSidebar`
- * so it is unit-testable without a real `@opentui` renderer (which JSX construction
- * requires; see spec `todo-tui` and tasks.md 6.5 for the live-capture verification
- * that covers rendering itself).
+ * list, re-fetches on a `changed` event for that same session, and additionally
+ * re-fetches on a bounded interval as a safety net against a missed or silently dropped
+ * event (see `SAFETY_NET_INTERVAL_MS`). Never lets an RPC failure escape as a thrown
+ * error (design D11) — kept separate from `TodoSidebar` so it is unit-testable without a
+ * real `@opentui` renderer (which JSX construction requires; see spec `todo-tui` and
+ * tasks.md 6.5 for the live-capture verification that covers rendering itself).
  */
 export function createTodoFeed(
   client: TodoRpcClient,
@@ -154,6 +162,9 @@ export function createTodoFeed(
       }
     });
     onCleanup(dispose);
+
+    const intervalId = setInterval(() => void refresh(id), SAFETY_NET_INTERVAL_MS);
+    onCleanup(() => clearInterval(intervalId));
   });
 
   return { todos, error };
