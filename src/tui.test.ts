@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { createRoot, createSignal } from "solid-js";
-import { createTodoFeed, type TodoRpcClient } from "./tui.js";
+import {
+  createTodoFeed,
+  formatCollapsedSummary,
+  type TodoRpcClient,
+} from "./tui.js";
 import type { TodoItem } from "./types.js";
 
 type ChangedHandler = (event: { data: unknown }) => void;
 
-const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+const flush = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, 0));
 
 function fakeClient(): {
   client: TodoRpcClient;
@@ -135,5 +140,51 @@ describe("createTodoFeed", () => {
     expect(listCalls).toEqual(["s1", "s2"]);
 
     disposeRoot();
+  });
+});
+
+describe("formatCollapsedSummary", () => {
+  // spec: todo-tui "Collapsed section shows an ordered, non-zero status-count summary"
+  test("a single non-zero status renders just that count", () => {
+    const todos = [sampleTodo({ status: "pending" })];
+    expect(formatCollapsedSummary(todos)).toBe("(1 pending)");
+  });
+
+  // spec: todo-tui "Collapsed section shows an ordered, non-zero status-count summary"
+  test("multiple non-zero statuses render in fixed order pending, in progress, completed, cancelled", () => {
+    const todos = [
+      sampleTodo({ id: "1", status: "cancelled" }),
+      sampleTodo({ id: "2", status: "completed" }),
+      sampleTodo({ id: "3", status: "pending" }),
+      sampleTodo({ id: "4", status: "in_progress" }),
+    ];
+    expect(formatCollapsedSummary(todos)).toBe(
+      "(1 pending, 1 in progress, 1 done, 1 cancelled)",
+    );
+  });
+
+  // spec: todo-tui "Collapsed section shows an ordered, non-zero status-count summary"
+  test("all four statuses present with mixed counts", () => {
+    const todos = [
+      sampleTodo({ id: "1", status: "pending" }),
+      sampleTodo({ id: "2", status: "pending" }),
+      sampleTodo({ id: "3", status: "in_progress" }),
+      sampleTodo({ id: "4", status: "completed" }),
+      sampleTodo({ id: "5", status: "completed" }),
+      sampleTodo({ id: "6", status: "completed" }),
+      sampleTodo({ id: "7", status: "cancelled" }),
+    ];
+    expect(formatCollapsedSummary(todos)).toBe(
+      "(2 pending, 1 in progress, 3 done, 1 cancelled)",
+    );
+  });
+
+  // spec: todo-tui "Collapsed section shows an ordered, non-zero status-count summary"
+  test("a zero-count status is omitted entirely, and completed renders as done", () => {
+    const todos = [
+      sampleTodo({ id: "1", status: "completed" }),
+      sampleTodo({ id: "2", status: "completed" }),
+    ];
+    expect(formatCollapsedSummary(todos)).toBe("(2 done)");
   });
 });
