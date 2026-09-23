@@ -1,7 +1,14 @@
 import { Plugin } from "@opencode/plugin/tui";
 import { TextAttributes } from "@opentui/core";
 import type { JSX } from "@opentui/solid";
-import { createEffect, createSignal, For, onCleanup, Show, type Accessor } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  onCleanup,
+  Show,
+  type Accessor,
+} from "solid-js";
 import { TodoRpc } from "./rpc.js";
 import type { TodoItem, TodoStatus } from "./types.js";
 
@@ -22,7 +29,10 @@ function statusGlyph(status: TodoStatus): string {
   }
 }
 
-function statusColor(status: TodoStatus, theme: Plugin.Context["theme"]): string {
+function statusColor(
+  status: TodoStatus,
+  theme: Plugin.Context["theme"],
+): string {
   switch (status) {
     case "completed":
       return theme.text.feedback.success.base;
@@ -32,6 +42,46 @@ function statusColor(status: TodoStatus, theme: Plugin.Context["theme"]): string
     case "pending":
       return theme.text.muted;
   }
+}
+
+/** Below this many todos, the section is always shown expanded with no collapse
+ * affordance at all — mirrors `SidebarMcp`'s own threshold exactly (design D2). */
+const COLLAPSE_THRESHOLD = 2;
+
+/** Label used for each status in the collapsed-sidebar summary — shorter than the status
+ * enum name for `completed` ("done"), and none of the four pluralize with count, so no
+ * singular/plural branching is needed (design D3). */
+const COLLAPSED_SUMMARY_LABELS: Record<TodoStatus, string> = {
+  pending: "pending",
+  in_progress: "in progress",
+  completed: "done",
+  cancelled: "cancelled",
+};
+
+/** Formats the collapsed Todos header's inline summary: non-zero status counts only, in the
+ * fixed order pending → in_progress → completed → cancelled (design D3). Only ever called
+ * while the outer `<Show when={feed.todos().length > 0}>` in `TodoSidebar` has already
+ * passed, so `todos` is never empty and at least one count is always non-zero. */
+export function formatCollapsedSummary(todos: readonly TodoItem[]): string {
+  const counts: Record<TodoStatus, number> = {
+    pending: 0,
+    in_progress: 0,
+    completed: 0,
+    cancelled: 0,
+  };
+  for (const todo of todos) {
+    counts[todo.status] += 1;
+  }
+  const order: readonly TodoStatus[] = [
+    "pending",
+    "in_progress",
+    "completed",
+    "cancelled",
+  ];
+  const parts = order
+    .filter((status) => counts[status] > 0)
+    .map((status) => `${counts[status]} ${COLLAPSED_SUMMARY_LABELS[status]}`);
+  return `(${parts.join(", ")})`;
 }
 
 /**
@@ -57,7 +107,10 @@ interface TodoChangedEventData {
 export interface TodoRpcClient {
   list(input: { sessionID: string }): Promise<unknown>;
   events: {
-    on(name: "changed", handler: (event: { data: unknown }) => void): () => void;
+    on(
+      name: "changed",
+      handler: (event: { data: unknown }) => void,
+    ): () => void;
   };
 }
 
@@ -74,7 +127,10 @@ export interface TodoFeed {
  * requires; see spec `todo-tui` and tasks.md 6.5 for the live-capture verification
  * that covers rendering itself).
  */
-export function createTodoFeed(client: TodoRpcClient, sessionID: Accessor<string>): TodoFeed {
+export function createTodoFeed(
+  client: TodoRpcClient,
+  sessionID: Accessor<string>,
+): TodoFeed {
   const [todos, setTodos] = createSignal<readonly TodoItem[]>([]);
   const [error, setError] = createSignal<string | null>(null);
 
@@ -115,38 +171,74 @@ export function TodoSidebar(props: TodoSidebarProps): JSX.Element {
   const client = props.context.client.rpc(TodoRpc);
   const feed = createTodoFeed(client, () => props.sessionID);
   const theme = props.context.theme;
+  const [view, updateView] = props.context.storage.store("view", {
+    initial: { open: true },
+  });
+
+  const toggle = (): void => {
+    if (feed.todos().length <= COLLAPSE_THRESHOLD) return;
+    void updateView((draft) => {
+      draft.open = !draft.open;
+    }).catch((error: unknown) =>
+      console.error("Failed to persist Todos sidebar state", error),
+    );
+  };
 
   return (
-    <Show when={feed.error() === null} fallback={<text fg={theme.text.feedback.error.base}>{`todo: ${feed.error()}`}</text>}>
+    <Show
+      when={feed.error() === null}
+      fallback={
+        <text
+          fg={theme.text.feedback.error.base}
+        >{`todo: ${feed.error()}`}</text>
+      }
+    >
       <Show when={feed.todos().length > 0}>
         <box>
-          <text fg={theme.text.base}>
-            <b>Todos</b>
-          </text>
-          <For each={feed.todos()}>
-            {(todo) => {
-              const isCancelled = todo.status === "cancelled";
-              return (
-                <box flexDirection="row" gap={1} minWidth={0}>
-                  <text flexShrink={0} fg={statusColor(todo.status, theme)}>
-                    {statusGlyph(todo.status)}
-                  </text>
-                  <text
-                    fg={isCancelled ? theme.text.muted : theme.text.base}
-                    attributes={isCancelled ? TextAttributes.STRIKETHROUGH : TextAttributes.NONE}
-                    wrapMode="word"
-                    truncate
-                    maxHeight={2}
-                    flexGrow={1}
-                    flexShrink={1}
-                    minWidth={0}
-                  >
-                    {todo.content}
-                  </text>
-                </box>
-              );
-            }}
-          </For>
+          <box flexDirection="row" gap={1} onMouseDown={toggle}>
+            <Show when={feed.todos().length > COLLAPSE_THRESHOLD}>
+              <text fg={theme.text.base}>{view.open ? "▼" : "▶"}</text>
+            </Show>
+            <text fg={theme.text.base}>
+              <b>Todos</b>
+              <Show when={!view.open}>
+                <span style={{ fg: theme.text.muted }}>
+                  {" "}
+                  {formatCollapsedSummary(feed.todos())}
+                </span>
+              </Show>
+            </text>
+          </box>
+          <Show when={feed.todos().length <= COLLAPSE_THRESHOLD || view.open}>
+            <For each={feed.todos()}>
+              {(todo) => {
+                const isCancelled = todo.status === "cancelled";
+                return (
+                  <box flexDirection="row" gap={1} minWidth={0}>
+                    <text flexShrink={0} fg={statusColor(todo.status, theme)}>
+                      {statusGlyph(todo.status)}
+                    </text>
+                    <text
+                      fg={isCancelled ? theme.text.muted : theme.text.base}
+                      attributes={
+                        isCancelled
+                          ? TextAttributes.STRIKETHROUGH
+                          : TextAttributes.NONE
+                      }
+                      wrapMode="word"
+                      truncate
+                      maxHeight={2}
+                      flexGrow={1}
+                      flexShrink={1}
+                      minWidth={0}
+                    >
+                      {todo.content}
+                    </text>
+                  </box>
+                );
+              }}
+            </For>
+          </Show>
         </box>
       </Show>
     </Show>
@@ -158,7 +250,9 @@ export default Plugin.define({
   setup(context) {
     return context.ui.slot({
       append: "sidebar.content",
-      render: (input) => <TodoSidebar context={context} sessionID={input.sessionID} />,
+      render: (input) => (
+        <TodoSidebar context={context} sessionID={input.sessionID} />
+      ),
     });
   },
 });
