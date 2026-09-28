@@ -54,6 +54,18 @@ describe("todowrite tool", () => {
     expect(store.read("s1")).toHaveLength(0);
   });
 
+  // spec: todo-tools "todowrite defaults an omitted status to pending"
+  it("defaults status to pending when omitted", async () => {
+    const tool = createTodoWriteTool(store);
+    await tool.execute(
+      { todos: [{ content: "a" } as never] },
+      { sessionID: "s1" },
+    );
+    const todos = store.read("s1");
+    expect(todos).toHaveLength(1);
+    expect(todos[0]?.status).toBe("pending");
+  });
+
   // spec: todo-tools "Tool results carry a structured metadata contract"
   it("returns metadata with source, schemaVersion, sessionID, revision, todos, counts", async () => {
     const tool = createTodoWriteTool(store);

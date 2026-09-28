@@ -36,19 +36,29 @@ function renderSummary(todos: readonly { status: TodoStatus; content: string }[]
   return todos.map((t) => `${STATUS_MARKER[t.status]} ${t.content}`).join("\n");
 }
 
-function assertValidItems(todos: unknown): asserts todos is TodoInput[] {
+const DEFAULT_STATUS: TodoStatus = "pending";
+
+/**
+ * Validates raw tool input and normalizes it into `TodoInput[]`: an item with no `status` field
+ * defaults to `"pending"`; an item with an explicit `status` outside the fixed set is rejected.
+ */
+function normalizeItems(todos: unknown): TodoInput[] {
   if (!Array.isArray(todos)) {
     throw new Error("opencode-todo: todowrite requires a `todos` array");
   }
-  for (const item of todos) {
+  return todos.map((item) => {
     const status = (item as { status?: unknown } | null)?.status;
+    if (status === undefined) {
+      return { ...(item as object), status: DEFAULT_STATUS } as TodoInput;
+    }
     if (typeof status !== "string" || !VALID_STATUSES.has(status)) {
       throw new Error(
         `opencode-todo: invalid status "${String(status)}" — must be one of ` +
           "pending, in_progress, completed, cancelled",
       );
     }
-  }
+    return item as TodoInput;
+  });
 }
 
 const TODOWRITE_DESCRIPTION =
@@ -56,7 +66,8 @@ const TODOWRITE_DESCRIPTION =
   "keep — including ones already in progress or completed — as the complete list; anything " +
   "omitted is archived, not merely left alone. Echo back the `id` of any item you are carrying " +
   "forward unchanged so its creation time and completion time are preserved; omit `id` only for " +
-  "a genuinely new item. Use this to track multi-step work so it survives context compaction.";
+  "a genuinely new item. `status` defaults to `pending` when omitted, so a newly added item " +
+  "needs no explicit status. Use this to track multi-step work so it survives context compaction.";
 
 const TODOREAD_DESCRIPTION =
   "Read back the current session's todo list exactly as last written by todowrite. Use this " +
@@ -81,10 +92,11 @@ export function createTodoWriteTool(store: Store, log: Logger = defaultLogger) {
               status: {
                 type: "string",
                 enum: ["pending", "in_progress", "completed", "cancelled"],
+                description: "Defaults to \"pending\" when omitted",
               },
               priority: { type: "string", description: "Optional free-form priority label" },
             },
-            required: ["content", "status"],
+            required: ["content"],
           },
         },
       },
@@ -96,8 +108,8 @@ export function createTodoWriteTool(store: Store, log: Logger = defaultLogger) {
       context: ToolCallContext,
     ): Promise<ToolResult> {
       try {
-        assertValidItems(input.todos);
-        const { revision, todos } = store.write(context.sessionID, input.todos as TodoInput[]);
+        const items = normalizeItems(input.todos);
+        const { revision, todos } = store.write(context.sessionID, items);
         return {
           content: renderSummary(todos),
           metadata: buildMetadata(context.sessionID, revision, todos),

@@ -74,7 +74,9 @@ history); an item with no `id` whose `content` exactly matches a still-open item
 the previous write is matched by content instead. Any previously-open item that the
 model doesn't include in a `todowrite` call is archived (soft-deleted), not hard-deleted
 — its data remains in the database, excluded from reads, until the retention/orphan
-sweep or a manual database operation removes it permanently.
+sweep or a manual database operation removes it permanently. An item's `status` is
+optional and defaults to `pending` when omitted; an explicitly supplied value outside
+`pending`/`in_progress`/`completed`/`cancelled` is still rejected.
 
 ### `todoread`
 
