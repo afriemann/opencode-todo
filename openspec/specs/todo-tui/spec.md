@@ -149,3 +149,10 @@ open/closed state across TUI restarts.
 - **GIVEN** no prior collapse/expand state has been persisted for the Todos section
 - **WHEN** the sidebar renders the Todos section for the first time
 - **THEN** the section renders expanded, showing the full item list
+
+#### Scenario: Header text is not selectable
+
+- **GIVEN** the sidebar renders the Todos header, expanded or collapsed
+- **WHEN** the user drags a text selection across the header row
+- **THEN** the triangle, the "Todos" label, and the collapsed summary are not included in the
+  selection, while todo item rows remain selectable
