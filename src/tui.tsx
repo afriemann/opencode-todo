@@ -208,9 +208,11 @@ export function TodoSidebar(props: TodoSidebarProps): JSX.Element {
         <box>
           <box flexDirection="row" gap={1} onMouseDown={toggle}>
             <Show when={feed.todos().length > COLLAPSE_THRESHOLD}>
-              <text fg={theme.text.base}>{view.open ? "▼" : "▶"}</text>
+              <text fg={theme.text.base} selectable={false}>
+                {view.open ? "▼" : "▶"}
+              </text>
             </Show>
-            <text fg={theme.text.base}>
+            <text fg={theme.text.base} selectable={false}>
               <b>Todos</b>
               <Show when={!view.open}>
                 <span style={{ fg: theme.text.muted }}>
