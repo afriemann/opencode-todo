@@ -116,7 +116,6 @@ export interface TodoRpcClient {
 
 export interface TodoFeed {
   readonly todos: Accessor<readonly TodoItem[]>;
-  readonly error: Accessor<string | null>;
 }
 
 /** How often the sidebar re-fetches as a safety net, independent of the `changed` event.
@@ -126,48 +125,81 @@ export interface TodoFeed {
  * sidebar instead of leaving it stale indefinitely. */
 const SAFETY_NET_INTERVAL_MS = 30_000;
 
+/** While fetches are failing (server restarting, transport down), the 30 s safety net is far
+ * too slow to notice the server coming back, so retry on a doubling delay instead. */
+const RETRY_INITIAL_DELAY_MS = 500;
+const RETRY_MAX_DELAY_MS = 5_000;
+
 /**
  * Renderer-independent data flow for the sidebar: fetches the focused session's todo
  * list, re-fetches on a `changed` event for that same session, and additionally
  * re-fetches on a bounded interval as a safety net against a missed or silently dropped
  * event (see `SAFETY_NET_INTERVAL_MS`). Never lets an RPC failure escape as a thrown
- * error (design D11) — kept separate from `TodoSidebar` so it is unit-testable without a
- * real `@opentui` renderer (which JSX construction requires; see spec `todo-tui` and
- * tasks.md 6.5 for the live-capture verification that covers rendering itself).
+ * error (design D11): a failed fetch clears the list (the sidebar renders nothing while
+ * disconnected), logs the first failure of the outage, and retries with capped
+ * exponential backoff until a fetch succeeds. Kept separate from `TodoSidebar` so it is
+ * unit-testable without a real `@opentui` renderer (which JSX construction requires; see
+ * spec `todo-tui` and tasks.md 6.5 for the live-capture verification that covers
+ * rendering itself).
  */
 export function createTodoFeed(
   client: TodoRpcClient,
   sessionID: Accessor<string>,
 ): TodoFeed {
   const [todos, setTodos] = createSignal<readonly TodoItem[]>([]);
-  const [error, setError] = createSignal<string | null>(null);
-
-  const refresh = async (id: string): Promise<void> => {
-    try {
-      const result = (await client.list({ sessionID: id })) as TodoListResult;
-      setTodos(result.todos);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
 
   createEffect(() => {
     const id = sessionID();
-    void refresh(id);
+    // Bumped per fetch and on cleanup; a fetch that is no longer the latest drops its result,
+    // so a late response from a previous session or an overlapping fetch cannot clobber state.
+    let latestFetch = 0;
+    let inOutage = false;
+    let retryDelay = RETRY_INITIAL_DELAY_MS;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const refresh = async (): Promise<void> => {
+      const fetchId = ++latestFetch;
+      try {
+        const result = (await client.list({ sessionID: id })) as TodoListResult;
+        if (fetchId !== latestFetch) return;
+        setTodos(result.todos);
+        clearTimeout(retryTimer);
+        retryDelay = RETRY_INITIAL_DELAY_MS;
+        if (inOutage) {
+          inOutage = false;
+          console.info("todo: reconnected to the opencode server");
+        }
+      } catch (err) {
+        if (fetchId !== latestFetch) return;
+        setTodos([]);
+        if (!inOutage) {
+          inOutage = true;
+          console.error("todo: cannot reach the opencode server, retrying", err);
+        }
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(() => void refresh(), retryDelay);
+        retryDelay = Math.min(retryDelay * 2, RETRY_MAX_DELAY_MS);
+      }
+    };
+
+    void refresh();
     const dispose = client.events.on("changed", (event) => {
       const data = event.data as TodoChangedEventData;
       if (data.sessionID === id) {
-        void refresh(id);
+        void refresh();
       }
     });
-    onCleanup(dispose);
+    const intervalId = setInterval(() => void refresh(), SAFETY_NET_INTERVAL_MS);
 
-    const intervalId = setInterval(() => void refresh(id), SAFETY_NET_INTERVAL_MS);
-    onCleanup(() => clearInterval(intervalId));
+    onCleanup(() => {
+      latestFetch += 1;
+      dispose();
+      clearInterval(intervalId);
+      clearTimeout(retryTimer);
+    });
   });
 
-  return { todos, error };
+  return { todos };
 }
 
 interface TodoSidebarProps {
@@ -196,64 +228,55 @@ export function TodoSidebar(props: TodoSidebarProps): JSX.Element {
   };
 
   return (
-    <Show
-      when={feed.error() === null}
-      fallback={
-        <text
-          fg={theme.text.feedback.error.base}
-        >{`todo: ${feed.error()}`}</text>
-      }
-    >
-      <Show when={feed.todos().length > 0}>
-        <box>
-          <box flexDirection="row" gap={1} onMouseDown={toggle}>
-            <Show when={feed.todos().length > COLLAPSE_THRESHOLD}>
-              <text fg={theme.text.base} selectable={false}>
-                {view.open ? "▼" : "▶"}
-              </text>
-            </Show>
+    <Show when={feed.todos().length > 0}>
+      <box>
+        <box flexDirection="row" gap={1} onMouseDown={toggle}>
+          <Show when={feed.todos().length > COLLAPSE_THRESHOLD}>
             <text fg={theme.text.base} selectable={false}>
-              <b>Todos</b>
-              <Show when={!view.open}>
-                <span style={{ fg: theme.text.muted }}>
-                  {" "}
-                  {formatCollapsedSummary(feed.todos())}
-                </span>
-              </Show>
+              {view.open ? "▼" : "▶"}
             </text>
-          </box>
-          <Show when={feed.todos().length <= COLLAPSE_THRESHOLD || view.open}>
-            <For each={feed.todos()}>
-              {(todo) => {
-                const isCancelled = todo.status === "cancelled";
-                return (
-                  <box flexDirection="row" gap={1} minWidth={0}>
-                    <text flexShrink={0} fg={statusColor(todo.status, theme)}>
-                      {statusGlyph(todo.status)}
-                    </text>
-                    <text
-                      fg={isCancelled ? theme.text.muted : theme.text.base}
-                      attributes={
-                        isCancelled
-                          ? TextAttributes.STRIKETHROUGH
-                          : TextAttributes.NONE
-                      }
-                      wrapMode="word"
-                      truncate
-                      maxHeight={2}
-                      flexGrow={1}
-                      flexShrink={1}
-                      minWidth={0}
-                    >
-                      {todo.content}
-                    </text>
-                  </box>
-                );
-              }}
-            </For>
           </Show>
+          <text fg={theme.text.base} selectable={false}>
+            <b>Todos</b>
+            <Show when={!view.open}>
+              <span style={{ fg: theme.text.muted }}>
+                {" "}
+                {formatCollapsedSummary(feed.todos())}
+              </span>
+            </Show>
+          </text>
         </box>
-      </Show>
+        <Show when={feed.todos().length <= COLLAPSE_THRESHOLD || view.open}>
+          <For each={feed.todos()}>
+            {(todo) => {
+              const isCancelled = todo.status === "cancelled";
+              return (
+                <box flexDirection="row" gap={1} minWidth={0}>
+                  <text flexShrink={0} fg={statusColor(todo.status, theme)}>
+                    {statusGlyph(todo.status)}
+                  </text>
+                  <text
+                    fg={isCancelled ? theme.text.muted : theme.text.base}
+                    attributes={
+                      isCancelled
+                        ? TextAttributes.STRIKETHROUGH
+                        : TextAttributes.NONE
+                    }
+                    wrapMode="word"
+                    truncate
+                    maxHeight={2}
+                    flexGrow={1}
+                    flexShrink={1}
+                    minWidth={0}
+                  >
+                    {todo.content}
+                  </text>
+                </box>
+              );
+            }}
+          </For>
+        </Show>
+      </box>
     </Show>
   );
 }
