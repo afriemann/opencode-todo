@@ -108,27 +108,25 @@ describe("createTodoFeed", () => {
     });
     await flush();
     expect(feed.todos()).toEqual(items);
-    expect(feed.error()).toBeNull();
     disposeRoot();
   });
 
   // spec: todo-tui "RPC failure shows inline error, not a crash"
-  test("an RPC rejection is captured in error() and never thrown", async () => {
+  test("an RPC rejection is logged and never thrown", async () => {
     let disposeRoot = (): void => {};
+    const logged = jest.spyOn(console, "error").mockImplementation(() => {});
     const client: TodoRpcClient = {
       list: () => Promise.reject(new Error("rpc unavailable")),
       events: { on: () => () => {} },
     };
-    let feed!: ReturnType<typeof createTodoFeed>;
     expect(() => {
       createRoot((dispose) => {
         disposeRoot = dispose;
-        feed = createTodoFeed(client, () => "s1");
+        createTodoFeed(client, () => "s1");
       });
     }).not.toThrow();
     await flush();
-    expect(feed.error()).toBe("rpc unavailable");
-    expect(feed.todos()).toEqual([]);
+    expect(logged).toHaveBeenCalledTimes(1);
     disposeRoot();
   });
 
@@ -153,6 +151,7 @@ describe("createTodoFeed", () => {
 
   afterEach(() => {
     jest.useRealTimers();
+    jest.restoreAllMocks();
   });
 
   // spec: todo-tui "Safety-net reconciliation recovers from a missed change notification"
@@ -198,6 +197,208 @@ describe("createTodoFeed", () => {
     jest.advanceTimersByTime(60_000);
     await flushMicrotasks();
     expect(listCalls).toEqual(["s1", "s2"]);
+  });
+});
+
+/** A client whose `list` fails while `outage.down` is true and otherwise returns `items`. */
+function flakyClient(items: readonly TodoItem[] = []): {
+  client: TodoRpcClient;
+  outage: { down: boolean };
+  listCalls: string[];
+  emit: ChangedHandler;
+} {
+  const outage = { down: true };
+  const listCalls: string[] = [];
+  let handler: ChangedHandler = () => {};
+  const client: TodoRpcClient = {
+    list: async (input) => {
+      listCalls.push(input.sessionID);
+      if (outage.down) throw new Error("Transport: Unable to connect");
+      return { revision: listCalls.length, todos: items };
+    },
+    events: {
+      on: (_name, h) => {
+        handler = h;
+        return () => {};
+      },
+    },
+  };
+  return { client, outage, listCalls, emit: (event) => handler(event) };
+}
+
+describe("createTodoFeed outage recovery", () => {
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  // spec: todo-tui "RPC failure shows inline error, not a crash" (superseded: now retries quickly)
+  test("retries after a failure with doubling delays capped at 5s", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    const { client, listCalls } = flakyClient();
+    jest.useFakeTimers();
+    let disposeRoot = (): void => {};
+    createRoot((dispose) => {
+      disposeRoot = dispose;
+      createTodoFeed(client, () => "s1");
+    });
+    await flushMicrotasks();
+    expect(listCalls.length).toBe(1);
+
+    for (const [delay, expectedCalls] of [
+      [500, 2],
+      [1_000, 3],
+      [2_000, 4],
+      [4_000, 5],
+      [5_000, 6],
+      [5_000, 7],
+    ] as const) {
+      jest.advanceTimersByTime(delay - 1);
+      await flushMicrotasks();
+      expect(listCalls.length).toBe(expectedCalls - 1);
+      jest.advanceTimersByTime(1);
+      await flushMicrotasks();
+      expect(listCalls.length).toBe(expectedCalls);
+    }
+    disposeRoot();
+  });
+
+  // spec: todo-tui "RPC failure shows inline error, not a crash" (superseded)
+  test("logs only the first failure of an outage, then the recovery", async () => {
+    const logged = jest.spyOn(console, "error").mockImplementation(() => {});
+    const info = jest.spyOn(console, "info").mockImplementation(() => {});
+    const { client, outage } = flakyClient([sampleTodo()]);
+    jest.useFakeTimers();
+    let disposeRoot = (): void => {};
+    createRoot((dispose) => {
+      disposeRoot = dispose;
+      createTodoFeed(client, () => "s1");
+    });
+    await flushMicrotasks();
+    jest.advanceTimersByTime(500);
+    await flushMicrotasks();
+    jest.advanceTimersByTime(1_000);
+    await flushMicrotasks();
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(info).not.toHaveBeenCalled();
+
+    outage.down = false;
+    jest.advanceTimersByTime(2_000);
+    await flushMicrotasks();
+    expect(info).toHaveBeenCalledTimes(1);
+    disposeRoot();
+  });
+
+  // spec: todo-tui "RPC failure shows inline error, not a crash" (superseded)
+  test("a successful retry restores todos and stops the fast retries", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    jest.spyOn(console, "info").mockImplementation(() => {});
+    const items = [sampleTodo()];
+    const { client, outage, listCalls } = flakyClient(items);
+    jest.useFakeTimers();
+    let feed!: ReturnType<typeof createTodoFeed>;
+    let disposeRoot = (): void => {};
+    createRoot((dispose) => {
+      disposeRoot = dispose;
+      feed = createTodoFeed(client, () => "s1");
+    });
+    await flushMicrotasks();
+    expect(feed.todos()).toEqual([]);
+
+    outage.down = false;
+    jest.advanceTimersByTime(500);
+    await flushMicrotasks();
+    expect(feed.todos()).toEqual(items);
+    expect(listCalls.length).toBe(2);
+
+    // Well inside the 30s safety net, no further fetch may fire.
+    jest.advanceTimersByTime(20_000);
+    await flushMicrotasks();
+    expect(listCalls.length).toBe(2);
+    disposeRoot();
+  });
+
+  // spec: todo-tui "RPC failure shows inline error, not a crash" (superseded)
+  test("todos are cleared while disconnected", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    const items = [sampleTodo()];
+    const { client, outage, emit } = flakyClient(items);
+    outage.down = false;
+    jest.useFakeTimers();
+    let feed!: ReturnType<typeof createTodoFeed>;
+    let disposeRoot = (): void => {};
+    createRoot((dispose) => {
+      disposeRoot = dispose;
+      feed = createTodoFeed(client, () => "s1");
+    });
+    await flushMicrotasks();
+    expect(feed.todos()).toEqual(items);
+
+    outage.down = true;
+    emit({ data: { sessionID: "s1", revision: 2 } });
+    await flushMicrotasks();
+    expect(feed.todos()).toEqual([]);
+    disposeRoot();
+  });
+
+  // spec: todo-tui "RPC failure shows inline error, not a crash" (superseded)
+  test("a late response from a previous session is ignored", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    const s2Items = [sampleTodo({ id: "2", content: "session two" })];
+    const pending: Record<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }[]> = {};
+    const client: TodoRpcClient = {
+      list: ({ sessionID }) =>
+        sessionID === "s2"
+          ? Promise.resolve({ revision: 1, todos: s2Items })
+          : new Promise((resolve, reject) => {
+              (pending[sessionID] ??= []).push({ resolve, reject });
+            }),
+      events: { on: () => () => {} },
+    };
+    const [sessionID, setSessionID] = createSignal("s1");
+    let feed!: ReturnType<typeof createTodoFeed>;
+    let disposeRoot = (): void => {};
+    createRoot((dispose) => {
+      disposeRoot = dispose;
+      feed = createTodoFeed(client, sessionID);
+    });
+    setSessionID("s2");
+    await flush();
+    expect(feed.todos()).toEqual(s2Items);
+
+    pending["s1"]?.[0]?.resolve({ revision: 9, todos: [sampleTodo()] });
+    await flush();
+    expect(feed.todos()).toEqual(s2Items);
+    disposeRoot();
+  });
+
+  // spec: todo-tui "RPC failure shows inline error, not a crash" (superseded)
+  test("retries stop on dispose and on session change", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    const { client, listCalls } = flakyClient();
+    const [sessionID, setSessionID] = createSignal("s1");
+    jest.useFakeTimers();
+    let disposeRoot = (): void => {};
+    createRoot((dispose) => {
+      disposeRoot = dispose;
+      createTodoFeed(client, sessionID);
+    });
+    await flushMicrotasks();
+    expect(listCalls).toEqual(["s1"]);
+
+    setSessionID("s2");
+    await flushMicrotasks();
+    expect(listCalls).toEqual(["s1", "s2"]);
+
+    // Only the s2 retry loop may be alive: the first retry fires once, for s2.
+    jest.advanceTimersByTime(500);
+    await flushMicrotasks();
+    expect(listCalls).toEqual(["s1", "s2", "s2"]);
+
+    disposeRoot();
+    jest.advanceTimersByTime(60_000);
+    await flushMicrotasks();
+    expect(listCalls).toEqual(["s1", "s2", "s2"]);
   });
 });
 
