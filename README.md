@@ -78,6 +78,41 @@ sweep or a manual database operation removes it permanently. An item's `status` 
 optional and defaults to `pending` when omitted; an explicitly supplied value outside
 `pending`/`in_progress`/`completed`/`cancelled` is still rejected.
 
+Both `todowrite` and `todoread` return the current list as a compact JSON array
+in their visible text, with stable `id`, `content`, `status`, and optional
+`priority` fields. Empty lists return `[]`. A missing priority is omitted;
+an empty-string priority is retained. For example:
+
+```json
+[
+  {
+    "id": "current-item-id",
+    "content": "Verify the change",
+    "status": "in_progress"
+  }
+]
+```
+
+Parse either tool's output, edit the items, and pass the full array back as
+`todos` in an ordinary `todowrite` call. Retain each existing item's `id`, even
+when renaming it, to preserve its identity and creation/completion history:
+
+```json
+{
+  "todos": [
+    {
+      "id": "current-item-id",
+      "content": "Verify the JSON output",
+      "status": "completed"
+    }
+  ]
+}
+```
+
+Use IDs from the latest output, not list positions or guesses. Omit `id` only
+for genuinely new items. Timestamps and position remain in metadata, not in the
+visible writable array.
+
 An ID belonging to an archived item in the same session is rejected, including
 with `freshList: true`. The error names the stale ID; the entire write fails
 without changing the current list, archived history, or revision. Call `todoread`
@@ -125,7 +160,7 @@ transcript is surviving context compaction, where the original `todowrite` call'
 output may no longer be present in the model's context window.
 
 Both tools' results carry a `metadata` payload (`source`, `schemaVersion`, `sessionID`,
-`revision`, `todos`, `counts`, boolean `listCreated`) alongside their human-readable text, so other plugins
+`revision`, `todos`, `counts`, boolean `listCreated`) alongside their JSON text, so other plugins
 already watching `tool.execute.after` host-wide (for example a plugin deriving
 conditions from todo state, such as `opencode-auto-instruct`) can reconstruct the full
 todo state without a bespoke publish channel of their own.
