@@ -1,4 +1,4 @@
-import type { Store, TodoInput, TodoStatus } from "./store";
+import type { Store, TodoInput, TodoItem, TodoStatus } from "./store";
 import { buildMetadata, type TodoMetadata } from "./metadata";
 
 const VALID_STATUSES: ReadonlySet<string> = new Set([
@@ -23,19 +23,15 @@ const defaultLogger: Logger = (message, error) => {
   process.stderr.write(`[opencode-todo] ${message}: ${String(error)}\n`);
 };
 
-const STATUS_MARKER: Record<TodoStatus, string> = {
-  pending: "[ ]",
-  in_progress: "[~]",
-  completed: "[x]",
-  cancelled: "[-]",
-};
-
-/** Compact, human-readable rendering of the current list for the model-visible text field. */
-function renderSummary(
-  todos: readonly { status: TodoStatus; content: string }[],
-): string {
-  if (todos.length === 0) return "(no todos)";
-  return todos.map((t) => `${STATUS_MARKER[t.status]} ${t.content}`).join("\n");
+function renderTodos(todos: readonly TodoItem[]): string {
+  return JSON.stringify(
+    todos.map(({ id, content, status, priority }) => ({
+      id,
+      content,
+      status,
+      ...(priority === null ? {} : { priority }),
+    })),
+  );
 }
 
 const DEFAULT_STATUS: TodoStatus = "pending";
@@ -67,18 +63,20 @@ const TODOWRITE_DESCRIPTION =
   "Write the full intended todo list for the current session. Pass every item you want to " +
   "keep — including ones already in progress or completed — as the complete list; anything " +
   "omitted is archived, not merely left alone. Echo back the `id` of any item you are carrying " +
-  "forward unchanged so its creation time and completion time are preserved; omit `id` only for " +
+  "forward, even when renaming it, so its creation time and completion time are preserved; omit `id` only for " +
   "a genuinely new item. `status` defaults to `pending` when omitted, so a newly added item " +
   "needs no explicit status. Set `freshList: true` when starting a fresh task list while a " +
   "non-empty list already exists, including when carrying unfinished items forward. Omit it " +
   "for ordinary updates. Non-empty writes to an empty list automatically report creation; " +
-  "empty writes never do. Returns the current list and boolean `listCreated` metadata. " +
+  "empty writes never do. Returns a compact JSON array of id, content, status, and optional " +
+  "priority, plus boolean `listCreated` metadata. Parse the array and reuse it as `todos` for updates. " +
   "Use this to track multi-step work so it survives context compaction.";
 
 const TODOREAD_DESCRIPTION =
   "Read back the current session's todo list exactly as last written by todowrite. Use this " +
   "after a context compaction or at the start of a turn to recover the list without re-deriving " +
-  "it from conversation history.";
+  "it from conversation history. Returns a compact JSON array of id, content, status, and optional " +
+  "priority (or [] when empty). Parse the array and reuse it as `todos` in todowrite, retaining IDs even when renaming items.";
 
 /** Registers `todowrite` per spec `todo-tools` — directly callable, diffed against the store. */
 export function createTodoWriteTool(store: Store, log: Logger = defaultLogger) {
@@ -139,7 +137,7 @@ export function createTodoWriteTool(store: Store, log: Logger = defaultLogger) {
           input.freshList ?? false,
         );
         return {
-          content: renderSummary(todos),
+          content: renderTodos(todos),
           metadata: buildMetadata(
             context.sessionID,
             revision,
@@ -170,7 +168,7 @@ export function createTodoReadTool(store: Store, log: Logger = defaultLogger) {
         const todos = store.read(context.sessionID);
         const revision = store.revision(context.sessionID);
         return {
-          content: renderSummary(todos),
+          content: renderTodos(todos),
           metadata: buildMetadata(context.sessionID, revision, todos),
         };
       } catch (error) {

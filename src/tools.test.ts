@@ -1,5 +1,6 @@
-import { describe, expect, it, beforeEach, afterEach } from "bun:test";
+import { describe, expect, it, beforeEach, afterEach, jest } from "bun:test";
 import { Store } from "./store";
+import type { TodoInput } from "./types";
 import { createTodoReadTool, createTodoWriteTool } from "./tools";
 
 let store: Store;
@@ -27,16 +28,6 @@ describe("todowrite tool", () => {
       { sessionID: "s1" },
     );
     expect(store.read("s1")).toHaveLength(1);
-  });
-
-  it("returns a human-readable content summary", async () => {
-    const tool = createTodoWriteTool(store);
-    const result = await tool.execute(
-      { todos: [{ content: "a", status: "completed" }] },
-      { sessionID: "s1" },
-    );
-    expect(result.content).toContain("a");
-    expect(() => JSON.parse(result.content)).toThrow();
   });
 
   // spec: todo-tools "todowrite rejects an invalid status value"
@@ -202,6 +193,147 @@ describe("todoread tool", () => {
 
     await expect(tool.execute({}, { sessionID: "s1" })).rejects.toThrow("boom");
     expect(logs).toHaveLength(1);
+  });
+});
+
+// spec: openspec/specs/todo-tools/spec.md
+describe("visible JSON output", () => {
+  it("Both tools expose current todos as writable JSON", async () => {
+    const context = { sessionID: "s1" };
+    store.write("s1", [{ content: "archived", status: "pending" }], 100);
+    const expected = [
+      { id: "third", content: "no priority", status: "pending" },
+      {
+        id: "first",
+        content: "empty priority",
+        status: "in_progress",
+        priority: "",
+      },
+      {
+        id: "second",
+        content: "priority",
+        status: "completed",
+        priority: "high",
+      },
+    ];
+    const written = await createTodoWriteTool(store).execute(
+      { todos: expected },
+      context,
+    );
+    const read = await createTodoReadTool(store).execute({}, context);
+    for (const result of [written, read]) {
+      expect(result.content).toBe(JSON.stringify(expected));
+      expect(JSON.parse(result.content)).toEqual(expected);
+      expect(result.metadata.todos).toEqual(store.read("s1"));
+      expect(result.metadata.todos[0]).toMatchObject({
+        priority: null,
+        position: 0,
+        createdAt: expect.any(Number),
+        updatedAt: expect.any(Number),
+        completedAt: null,
+      });
+    }
+  });
+
+  it("Empty lists return an empty JSON array", async () => {
+    const context = { sessionID: "s1" };
+    const write = createTodoWriteTool(store);
+    const read = createTodoReadTool(store);
+    expect((await read.execute({}, context)).content).toBe("[]");
+    await write.execute({ todos: [{ content: "archive me" }] }, context);
+    expect((await write.execute({ todos: [] }, context)).content).toBe("[]");
+    expect((await read.execute({}, context)).content).toBe("[]");
+  });
+
+  it("Escaped IDs and content survive JSON output", async () => {
+    const context = { sessionID: "s1" };
+    const expected = [
+      {
+        id: ' spaced "id"\\\n雪 ',
+        content: ' text "quoted"\\\n☃ ',
+        status: "pending",
+      },
+    ];
+    const written = await createTodoWriteTool(store).execute(
+      { todos: expected },
+      context,
+    );
+    const read = await createTodoReadTool(store).execute({}, context);
+    for (const result of [written, read]) {
+      expect(result.content).toBe(JSON.stringify(expected));
+      expect(JSON.parse(result.content)).toEqual(expected);
+    }
+  });
+
+  it("Visible read and write output supports renamed updates", async () => {
+    const clock = jest.spyOn(Date, "now").mockReturnValue(100);
+    try {
+      for (const source of ["write", "read"]) {
+        const context = { sessionID: source };
+        const write = createTodoWriteTool(store);
+        const read = createTodoReadTool(store);
+        clock.mockReturnValue(100);
+        const initial = await write.execute(
+          {
+            todos: [
+              { content: "unfinished", status: "in_progress" },
+              { content: "already complete", status: "completed" },
+            ],
+          },
+          context,
+        );
+        const visible =
+          source === "write" ? initial : await read.execute({}, context);
+        expect(() => JSON.parse(visible.content)).not.toThrow();
+        const todos: TodoInput[] = JSON.parse(visible.content);
+        for (const todo of todos) {
+          todo.content += " renamed";
+          todo.status = "completed";
+        }
+        clock.mockReturnValue(200);
+        const updated = await write.execute({ todos }, context);
+        expect(updated.metadata.listCreated).toBe(false);
+        expect(
+          updated.metadata.todos.map(({ id, createdAt }) => ({
+            id,
+            createdAt,
+          })),
+        ).toEqual(
+          initial.metadata.todos.map(({ id, createdAt }) => ({
+            id,
+            createdAt,
+          })),
+        );
+        expect(updated.metadata.todos.map(({ content }) => content)).toEqual([
+          "unfinished renamed",
+          "already complete renamed",
+        ]);
+        expect(
+          updated.metadata.todos.map(({ completedAt }) => completedAt),
+        ).toEqual([200, 100]);
+        clock.mockReturnValue(300);
+        const unchanged = await write.execute(
+          { todos: JSON.parse(updated.content) },
+          context,
+        );
+        expect(unchanged.metadata.listCreated).toBe(false);
+        expect(
+          unchanged.metadata.todos.map(({ id, createdAt, completedAt }) => ({
+            id,
+            createdAt,
+            completedAt,
+          })),
+        ).toEqual(
+          updated.metadata.todos.map(({ id, createdAt, completedAt }) => ({
+            id,
+            createdAt,
+            completedAt,
+          })),
+        );
+      }
+    } finally {
+      clock.mockRestore();
+    }
   });
 });
 
